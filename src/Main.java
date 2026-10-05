@@ -5,806 +5,431 @@ import java.util.*;
 
 public class Main {
 
-    // -------------------- Operation --------------------
+    static final byte KEEP = 0;
+    static final byte DEL = 1;
+    static final byte INS = 2;
 
-    static class Op {
-        char type;       // K = keep, D = delete, I = insert
-        int aIndex;
-        int bIndex;
+    static class Diff {
+        final int[] a;
+        final int[] b;
+        final int[] vf;
+        final int[] vb;
+        final int off;
 
-        Op(char type, int aIndex, int bIndex) {
-            this.type = type;
-            this.aIndex = aIndex;
-            this.bIndex = bIndex;
+        byte[] type;
+        int[] opA;
+        int[] opB;
+        int count = 0;
+
+        int msx, msy, msu, msv;
+
+        Diff(int[] a, int[] b) {
+            this.a = a;
+            this.b = b;
+            int size = a.length + b.length;
+            int half = (size + 1) / 2 + 1;
+            off = half + 1;
+            vf = new int[2 * half + 3];
+            vb = new int[2 * half + 3];
+            type = new byte[size];
+            opA = new int[size];
+            opB = new int[size];
+        }
+
+        void emit(byte t, int ai, int bi) {
+            type[count] = t;
+            opA[count] = ai;
+            opB[count] = bi;
+            count++;
+        }
+
+        void run() {
+            solve(0, a.length, 0, b.length);
+        }
+
+        void solve(int aLo, int aHi, int bLo, int bHi) {
+            while (aLo < aHi && bLo < bHi && a[aLo] == b[bLo]) {
+                emit(KEEP, aLo, bLo);
+                aLo++;
+                bLo++;
+            }
+
+            int sufA = aHi;
+            int sufB = bHi;
+            while (aLo < sufA && bLo < sufB && a[sufA - 1] == b[sufB - 1]) {
+                sufA--;
+                sufB--;
+            }
+
+            if (aLo == sufA) {
+                for (int j = bLo; j < sufB; j++) {
+                    emit(INS, -1, j);
+                }
+            } else if (bLo == sufB) {
+                for (int i = aLo; i < sufA; i++) {
+                    emit(DEL, i, -1);
+                }
+            } else {
+                middleSnake(aLo, sufA, bLo, sufB);
+                int x = msx, y = msy, u = msu, v = msv;
+                solve(aLo, aLo + x, bLo, bLo + y);
+                for (int t = 0; t < u - x; t++) {
+                    emit(KEEP, aLo + x + t, bLo + y + t);
+                }
+
+                solve(aLo + u, sufA, bLo + v, sufB);
+            }
+
+            for (int t = 0; t < aHi - sufA; t++) {
+                emit(KEEP, sufA + t, sufB + t);
+            }
+        }
+
+        void middleSnake(int aLo, int aHi, int bLo, int bHi) {
+
+            int N = aHi - aLo;
+            int M = bHi - bLo;
+            int delta = N - M;
+            boolean odd = (delta & 1) != 0;
+            int max = (N + M + 1) / 2;
+
+            vf[off + 1] = 0;
+            vb[off + 1] = 0;
+
+            for (int d = 0; d <= max; d++) {
+                for (int k = -d; k <= d; k += 2) {
+                    int idx = off + k;
+                    int x;
+                    if (k == -d || (k != d && vf[idx - 1] < vf[idx + 1])) {
+                        x = vf[idx + 1];
+                    } else {
+                        x = vf[idx - 1] + 1;
+                    }
+
+                    int y = x - k;
+                    int sx = x;
+                    int sy = y;
+
+                    while (x < N && y < M && a[aLo + x] == b[bLo + y]) {
+                        x++;
+                        y++;
+                    }
+
+                    vf[idx] = x;
+
+                    if (odd && k >= delta - (d - 1) && k <= delta + (d - 1) && x + vb[off + delta - k] >= N) {
+                        msx = sx;
+                        msy = sy;
+                        msu = x;
+                        msv = y;
+                        return;
+                    }
+                }
+
+                for (int k = -d; k <= d; k += 2) {
+
+                    int idx = off + k;
+                    int x;
+
+                    if (k == -d || (k != d && vb[idx - 1] < vb[idx + 1])) {
+                        x = vb[idx + 1];
+                    } else {
+                        x = vb[idx - 1] + 1;
+                    }
+
+                    int y = x - k;
+                    int sx = x;
+                    int sy = y;
+
+                    while (x < N && y < M && a[aHi - 1 - x] == b[bHi - 1 - y]) {
+                        x++;
+                        y++;
+                    }
+
+                    vb[idx] = x;
+
+                    if (!odd && delta - k >= -d && delta - k <= d && x + vf[off + delta - k] >= N) {
+                        msx = N - x;
+                        msy = M - y;
+                        msu = N - sx;
+                        msv = M - sy;
+                        return;
+                    }
+                }
+            }
+            throw new IllegalStateException("no middle snake");
         }
     }
 
-    // -------------------- Reading files --------------------
-
-    static byte[] readFile(String path) throws IOException {
-        return Files.readAllBytes(Paths.get(path));
+    static class Lines {
+        byte[] data;
+        int[] start;
+        int[] end;
+        int n;
+        int[] ids;
     }
 
-    static List<byte[]> getLines(byte[] data) {
-        List<byte[]> lines = new ArrayList<>();
+    static Lines getLines(byte[] data) {
+        int count = 0;
+        for (byte x : data) {
+            if (x == '\n') {
+                count++;
+            }
+        }
+        if (data.length > 0 && data[data.length - 1] != '\n') {
+            count++;
+        }
 
-        int start = 0;
+        Lines L = new Lines();
+        L.data = data;
+        L.n = count;
+        L.start = new int[count];
+        L.end = new int[count];
+        L.ids = new int[count];
 
+        int s = 0;
+        int c = 0;
         for (int i = 0; i < data.length; i++) {
             if (data[i] == '\n') {
-                lines.add(Arrays.copyOfRange(data, start, i));
-                start = i + 1;
+                L.start[c] = s;
+                L.end[c] = i;
+                c++;
+                s = i + 1;
             }
         }
-
-        // Do not add an extra empty line when the file ends with \n
-        if (start < data.length) {
-            lines.add(Arrays.copyOfRange(data, start, data.length));
+        if (s < data.length) {
+            L.start[c] = s;
+            L.end[c] = data.length;
         }
-
-        return lines;
+        return L;
     }
 
-    // -------------------- Line comparison --------------------
+    static void assignIds(Lines A, Lines B) {
 
-    static boolean sameLine(byte[] a, byte[] b) {
-        return Arrays.equals(a, b);
-    }
+        int total = A.n + B.n;
+        int cap = 16;
+        while (cap < 2 * total) {
+            cap <<= 1;
+        }
+        int mask = cap - 1;
 
-    // -------------------- Myers Diff --------------------
+        int[] table = new int[cap];
+        Lines[] repFile = new Lines[total];
+        int[] repLine = new int[total];
+        int nextId = 0;
 
-    static List<Op> myers(List<byte[]> A, List<byte[]> B) {
+        Lines[] files = {A, B};
 
-        int N = A.size();
-        int M = B.size();
+        for (Lines f : files) {
+            for (int i = 0; i < f.n; i++) {
 
-        int maxD = N + M;
-        int offset = maxD + 1;
+                int s = f.start[i];
+                int e = f.end[i];
 
-        int[] V = new int[2 * maxD + 3];
+                int h = 1;
+                for (int p = s; p < e; p++) {
+                    h = 31 * h + f.data[p];
+                }
+                h ^= (h >>> 16);
+                h *= 0x85ebca6b;
+                h ^= (h >>> 13);
 
-        List<int[]> trace = new ArrayList<>();
+                int pos = h & mask;
+                int id = -1;
 
-        int finalD = 0;
-
-        boolean finished = false;
-
-        for (int d = 0; d <= maxD; d++) {
-
-            trace.add(V.clone());
-
-            for (int k = -d; k <= d; k += 2) {
-
-                int index = offset + k;
-
-                int x;
-
-                // Choose whether to move down (insert)
-                // or right (delete)
-                if (k == -d ||
-                    (k != d && V[index - 1] < V[index + 1])) {
-
-                    x = V[index + 1];
-
-                } else {
-
-                    x = V[index - 1] + 1;
+                while (table[pos] != 0) {
+                    int cand = table[pos] - 1;
+                    Lines cf = repFile[cand];
+                    int cl = repLine[cand];
+                    if (Arrays.equals(cf.data, cf.start[cl], cf.end[cl], f.data, s, e)) {
+                        id = cand;
+                        break;
+                    }
+                    pos = (pos + 1) & mask;
                 }
 
-                int y = x - k;
-
-                // Snake: keep matching lines
-                while (x < N &&
-                       y < M &&
-                       sameLine(A.get(x), B.get(y))) {
-
-                    x++;
-                    y++;
+                if (id == -1) {
+                    id = nextId++;
+                    table[pos] = id + 1;
+                    repFile[id] = f;
+                    repLine[id] = i;
                 }
 
-                V[index] = x;
-
-                if (x >= N && y >= M) {
-                    finalD = d;
-                    finished = true;
-                    break;
-                }
-            }
-
-            if (finished) {
-                break;
+                f.ids[i] = id;
             }
         }
-
-        return backtrack(A, B, trace, finalD, offset);
     }
 
-    // -------------------- Backtracking --------------------
+    // Part A
 
-    static List<Op> backtrack(
-            List<byte[]> A,
-            List<byte[]> B,
-            List<int[]> trace,
-            int finalD,
-            int offset) {
-
-        List<Op> result = new ArrayList<>();
-
-        int x = A.size();
-        int y = B.size();
-
-        for (int d = finalD; d > 0; d--) {
-
-            int[] V = trace.get(d);
-
-            int k = x - y;
-
-            int previousK;
-
-            if (k == -d ||
-                (k != d &&
-                 V[offset + k - 1] < V[offset + k + 1])) {
-
-                previousK = k + 1;
-
-            } else {
-
-                previousK = k - 1;
-            }
-
-            int previousX = V[offset + previousK];
-            int previousY = previousX - previousK;
-
-            // Move backwards through the snake
-            while (x > previousX && y > previousY) {
-
-                result.add(
-                    new Op('K', x - 1, y - 1)
-                );
-
-                x--;
-                y--;
-            }
-
-            // Find the edit
-            if (x == previousX + 1) {
-
-                // Delete from A
-                result.add(
-                    new Op('D', x - 1, -1)
-                );
-
-                x--;
-
-            } else {
-
-                // Insert from B
-                result.add(
-                    new Op('I', -1, y - 1)
-                );
-
-                y--;
-            }
-        }
-
-        // Remaining matching lines
-        while (x > 0 && y > 0) {
-
-            result.add(
-                new Op('K', x - 1, y - 1)
-            );
-
-            x--;
-            y--;
-        }
-
-        while (x > 0) {
-
-            result.add(
-                new Op('D', x - 1, -1)
-            );
-
-            x--;
-        }
-
-        while (y > 0) {
-
-            result.add(
-                new Op('I', -1, y - 1)
-            );
-
-            y--;
-        }
-
-        Collections.reverse(result);
-
-        return result;
+    static void writeLine(OutputStream out, int prefix, Lines F, int line) throws IOException {
+        out.write(prefix);
+        out.write(F.data, F.start[line], F.end[line] - F.start[line]);
+        out.write('\n');
     }
 
-    // -------------------- Delete-first ordering --------------------
-
-    static List<Op> normalize(List<Op> ops) {
-
-        List<Op> result = new ArrayList<>();
+    static void printLines(Lines A, Lines B, Diff d, OutputStream out) throws IOException {
 
         int i = 0;
+        while (i < d.count) {
 
-        while (i < ops.size()) {
-
-            if (ops.get(i).type == 'K') {
-                result.add(ops.get(i));
+            if (d.type[i] == KEEP) {
+                writeLine(out, ' ', A, d.opA[i]);
                 i++;
                 continue;
             }
 
-            // One change block
-            List<Op> deletes = new ArrayList<>();
-            List<Op> inserts = new ArrayList<>();
-
-            while (i < ops.size() && ops.get(i).type != 'K') {
-
-                if (ops.get(i).type == 'D') {
-                    deletes.add(ops.get(i));
-                } else {
-                    inserts.add(ops.get(i));
-                }
-
-                i++;
+            int j = i;
+            while (j < d.count && d.type[j] != KEEP) {
+                j++;
             }
 
-            // Assignment requires deletes first
-            result.addAll(deletes);
-            result.addAll(inserts);
-        }
-
-        return result;
-    }
-
-    // -------------------- Part A --------------------
-
-    static void printLines(
-            List<byte[]> A,
-            List<byte[]> B,
-            List<Op> originalOps) throws IOException {
-
-        List<Op> ops = normalize(originalOps);
-
-        BufferedOutputStream out =
-                new BufferedOutputStream(System.out);
-
-        for (Op op : ops) {
-
-            if (op.type == 'K') {
-
-                out.write(' ');
-                out.write(A.get(op.aIndex));
-                out.write('\n');
-
-            } else if (op.type == 'D') {
-
-                out.write('-');
-                out.write(A.get(op.aIndex));
-                out.write('\n');
-
-            } else {
-
-                out.write('+');
-                out.write(B.get(op.bIndex));
-                out.write('\n');
-            }
-        }
-
-        out.flush();
-    }
-
-    // ============================================================
-    // PART B - CHARACTER HIGHLIGHTING
-    // ============================================================
-
-    // Myers for integer arrays.
-    // We use integer arrays because Unicode code points can be > 65535.
-
-    static class CharOp {
-        char type;
-        int aIndex;
-        int bIndex;
-
-        CharOp(char type, int aIndex, int bIndex) {
-            this.type = type;
-            this.aIndex = aIndex;
-            this.bIndex = bIndex;
-        }
-    }
-
-    static List<CharOp> myersChars(int[] A, int[] B) {
-
-        int N = A.length;
-        int M = B.length;
-
-        int maxD = N + M;
-        int offset = maxD + 1;
-
-        int[] V = new int[2 * maxD + 3];
-
-        List<int[]> trace = new ArrayList<>();
-
-        int finalD = 0;
-        boolean finished = false;
-
-        for (int d = 0; d <= maxD; d++) {
-
-            trace.add(V.clone());
-
-            for (int k = -d; k <= d; k += 2) {
-
-                int index = offset + k;
-
-                int x;
-
-                if (k == -d ||
-                    (k != d && V[index - 1] < V[index + 1])) {
-
-                    x = V[index + 1];
-
-                } else {
-
-                    x = V[index - 1] + 1;
-                }
-
-                int y = x - k;
-
-                while (x < N &&
-                       y < M &&
-                       A[x] == B[y]) {
-
-                    x++;
-                    y++;
-                }
-
-                V[index] = x;
-
-                if (x >= N && y >= M) {
-                    finalD = d;
-                    finished = true;
-                    break;
+            for (int t = i; t < j; t++) {
+                if (d.type[t] == DEL) {
+                    writeLine(out, '-', A, d.opA[t]);
                 }
             }
-
-            if (finished) {
-                break;
+            for (int t = i; t < j; t++) {
+                if (d.type[t] == INS) {
+                    writeLine(out, '+', B, d.opB[t]);
+                }
             }
+            i = j;
         }
-
-        List<CharOp> result = new ArrayList<>();
-
-        int x = N;
-        int y = M;
-
-        for (int d = finalD; d > 0; d--) {
-
-            int[] oldV = trace.get(d);
-
-            int k = x - y;
-
-            int previousK;
-
-            if (k == -d ||
-                (k != d &&
-                 oldV[offset + k - 1] <
-                 oldV[offset + k + 1])) {
-
-                previousK = k + 1;
-
-            } else {
-
-                previousK = k - 1;
-            }
-
-            int previousX = oldV[offset + previousK];
-            int previousY = previousX - previousK;
-
-            while (x > previousX && y > previousY) {
-
-                result.add(
-                    new CharOp('K', x - 1, y - 1)
-                );
-
-                x--;
-                y--;
-            }
-
-            if (x == previousX + 1) {
-
-                result.add(
-                    new CharOp('D', x - 1, -1)
-                );
-
-                x--;
-
-            } else {
-
-                result.add(
-                    new CharOp('I', -1, y - 1)
-                );
-
-                y--;
-            }
-        }
-
-        while (x > 0 && y > 0) {
-
-            result.add(
-                new CharOp('K', x - 1, y - 1)
-            );
-
-            x--;
-            y--;
-        }
-
-        while (x > 0) {
-
-            result.add(
-                new CharOp('D', x - 1, -1)
-            );
-
-            x--;
-        }
-
-        while (y > 0) {
-
-            result.add(
-                new CharOp('I', -1, y - 1)
-            );
-
-            y--;
-        }
-
-        Collections.reverse(result);
-
-        return result;
     }
 
-    // -------------------- Character ranges --------------------
+    // Part B
 
-    static List<int[]> getChangedRanges(
-            int[] oldChars,
-            int[] newChars) {
-
-        List<CharOp> ops = myersChars(oldChars, newChars);
-
-        List<Integer> oldPositions = new ArrayList<>();
-        List<Integer> newPositions = new ArrayList<>();
-
-        for (CharOp op : ops) {
-
-            if (op.type == 'D') {
-                oldPositions.add(op.aIndex);
-
-            } else if (op.type == 'I') {
-                newPositions.add(op.bIndex);
-            }
-        }
-
-        List<int[]> ranges = new ArrayList<>();
-
-        // Old ranges
-        List<int[]> oldRanges = makeRanges(oldPositions);
-
-        // New ranges
-        List<int[]> newRanges = makeRanges(newPositions);
-
-        int max = Math.max(oldRanges.size(), newRanges.size());
-
-        for (int i = 0; i < max; i++) {
-
-            int oldStart = -1;
-            int oldEnd = -1;
-
-            int newStart = -1;
-            int newEnd = -1;
-
-            if (i < oldRanges.size()) {
-                oldStart = oldRanges.get(i)[0];
-                oldEnd = oldRanges.get(i)[1];
-            }
-
-            if (i < newRanges.size()) {
-                newStart = newRanges.get(i)[0];
-                newEnd = newRanges.get(i)[1];
-            }
-
-            ranges.add(new int[]{
-                oldStart, oldEnd, newStart, newEnd
-            });
-        }
-
-        return ranges;
+    static int[] codePoints(Lines F, int line) {
+        String s = new String(F.data, F.start[line], F.end[line] - F.start[line], StandardCharsets.UTF_8);
+        return s.codePoints().toArray();
     }
 
-    static List<int[]> makeRanges(List<Integer> positions) {
-
-        List<int[]> ranges = new ArrayList<>();
-
-        if (positions.isEmpty()) {
-            return ranges;
-        }
-
-        int start = positions.get(0);
-        int previous = start;
-
-        for (int i = 1; i < positions.size(); i++) {
-
-            int current = positions.get(i);
-
-            if (current == previous + 1) {
-
-                previous = current;
-
-            } else {
-
-                ranges.add(
-                    new int[]{start, previous + 1}
-                );
-
-                start = current;
-                previous = current;
-            }
-        }
-
-        ranges.add(
-            new int[]{start, previous + 1}
-        );
-
-        return ranges;
-    }
-
-    static String rangeString(
-            List<int[]> ranges,
-            boolean oldSide) {
-
-        StringBuilder sb = new StringBuilder();
-
-        boolean first = true;
-
-        for (int[] r : ranges) {
-
-            int start;
-            int end;
-
-            if (oldSide) {
-
-                start = r[0];
-                end = r[1];
-
-            } else {
-
-                start = r[2];
-                end = r[3];
-            }
-
-            if (start == -1) {
-                continue;
-            }
-
-            if (!first) {
-                sb.append(",");
-            }
-
-            sb.append(start);
-            sb.append("-");
-            sb.append(end);
-
-            first = false;
-        }
-
-        if (first) {
+    static String ranges(int[] pos, int n) {
+        if (n == 0) {
             return ".";
         }
-
+        StringBuilder sb = new StringBuilder();
+        int start = pos[0];
+        int prev = start;
+        for (int i = 1; i < n; i++) {
+            if (pos[i] == prev + 1) {
+                prev = pos[i];
+            } else {
+                if (sb.length() > 0) sb.append(',');
+                sb.append(start).append('-').append(prev + 1);
+                start = pos[i];
+                prev = start;
+            }
+        }
+        if (sb.length() > 0) sb.append(',');
+        sb.append(start).append('-').append(prev + 1);
         return sb.toString();
     }
 
-    // -------------------- Part B --------------------
+    static String question(int[] oldChars, int[] newChars) {
+        Diff cd = new Diff(oldChars, newChars);
+        cd.run();
 
-    static void printHighlight(
-            List<byte[]> A,
-            List<byte[]> B,
-            List<Op> originalOps) throws IOException {
+        int[] oldPos = new int[cd.count];
+        int[] newPos = new int[cd.count];
+        int no = 0;
+        int nn = 0;
+        for (int i = 0; i < cd.count; i++) {
+            if (cd.type[i] == DEL) {
+                oldPos[no++] = cd.opA[i];
+            } else if (cd.type[i] == INS) {
+                newPos[nn++] = cd.opB[i];
+            }
+        }
+        return "? " + ranges(oldPos, no) + " | " + ranges(newPos, nn) + "\n";
+    }
 
-        List<Op> ops = normalize(originalOps);
-
-        BufferedOutputStream out =
-                new BufferedOutputStream(System.out);
+    static void printHighlight(Lines A, Lines B, Diff d, OutputStream out) throws IOException {
 
         int i = 0;
+        while (i < d.count) {
 
-        while (i < ops.size()) {
-
-            Op op = ops.get(i);
-
-            if (op.type == 'K') {
-
-                out.write(' ');
-                out.write(A.get(op.aIndex));
-                out.write('\n');
-
+            if (d.type[i] == KEEP) {
+                writeLine(out, ' ', A, d.opA[i]);
                 i++;
                 continue;
             }
 
-            // Collect one change block
-            List<Op> deletes = new ArrayList<>();
-            List<Op> inserts = new ArrayList<>();
-
-            while (i < ops.size() && ops.get(i).type != 'K') {
-
-                if (ops.get(i).type == 'D') {
-                    deletes.add(ops.get(i));
-                } else {
-                    inserts.add(ops.get(i));
-                }
-
-                i++;
+            int j = i;
+            while (j < d.count && d.type[j] != KEEP) {
+                j++;
             }
 
-            int pairs = Math.min(
-                    deletes.size(),
-                    inserts.size()
-            );
-
-            // Print all deletes
-            for (Op d : deletes) {
-
-                out.write('-');
-                out.write(A.get(d.aIndex));
-                out.write('\n');
+            int nd = 0;
+            int ni = 0;
+            for (int t = i; t < j; t++) {
+                if (d.type[t] == DEL) nd++; else ni++;
+            }
+            int[] dels = new int[nd];
+            int[] inss = new int[ni];
+            nd = 0;
+            ni = 0;
+            for (int t = i; t < j; t++) {
+                if (d.type[t] == DEL) dels[nd++] = d.opA[t];
+                else inss[ni++] = d.opB[t];
             }
 
-            // Print inserts + ? lines
-            for (int j = 0; j < inserts.size(); j++) {
+            for (int t = 0; t < nd; t++) {
+                writeLine(out, '-', A, dels[t]);
+            }
 
-                Op ins = inserts.get(j);
+            int pairs = Math.min(nd, ni);
 
-                out.write('+');
-                out.write(B.get(ins.bIndex));
-                out.write('\n');
+            for (int t = 0; t < ni; t++) {
+                writeLine(out, '+', B, inss[t]);
 
-                if (j < pairs) {
-
-                    Op del = deletes.get(j);
-
-                    String oldText =
-                            new String(
-                                A.get(del.aIndex),
-                                StandardCharsets.UTF_8
-                            );
-
-                    String newText =
-                            new String(
-                                B.get(ins.bIndex),
-                                StandardCharsets.UTF_8
-                            );
-
-                    int[] oldChars =
-                            oldText.codePoints().toArray();
-
-                    int[] newChars =
-                            newText.codePoints().toArray();
-
-                    List<int[]> ranges =
-                            getChangedRanges(
-                                oldChars,
-                                newChars
-                            );
-
-                    List<int[]> oldRanges =
-                            new ArrayList<>();
-
-                    List<int[]> newRanges =
-                            new ArrayList<>();
-
-                    for (int[] r : ranges) {
-
-                        if (r[0] != -1) {
-                            oldRanges.add(
-                                new int[]{r[0], r[1]}
-                            );
-                        }
-
-                        if (r[2] != -1) {
-                            newRanges.add(
-                                new int[]{r[2], r[3]}
-                            );
-                        }
-                    }
-
-                    String oldPart =
-                            rangeString(
-                                ranges,
-                                true
-                            );
-
-                    String newPart =
-                            rangeString(
-                                ranges,
-                                false
-                            );
-
-                    String question =
-                            "? " + oldPart +
-                            " | " + newPart + "\n";
-
-                    out.write(
-                        question.getBytes(
-                            StandardCharsets.UTF_8
-                        )
-                    );
+                if (t < pairs) {
+                    String q = question(codePoints(A, dels[t]), codePoints(B, inss[t]));
+                    out.write(q.getBytes(StandardCharsets.UTF_8));
                 }
             }
+            i = j;
         }
-
-        out.flush();
     }
-
-    // -------------------- Main --------------------
 
     public static void main(String[] args) {
 
-        boolean known =
-                args.length == 3 &&
-                (args[0].equals("lines") ||
-                 args[0].equals("highlight"));
+        boolean known = args.length == 3 && (args[0].equals("lines") || args[0].equals("highlight"));
 
         if (!known) {
-
-            System.err.println(
-                "usage: Main lines|highlight A_PATH B_PATH"
-            );
-
+            System.err.println("usage: Main lines|highlight A_PATH B_PATH");
             System.exit(2);
         }
 
-        String command = args[0];
-        String aPath = args[1];
-        String bPath = args[2];
-
-        List<byte[]> A;
-        List<byte[]> B;
+        Lines A;
+        Lines B;
 
         try {
-
-            A = getLines(readFile(aPath));
-            B = getLines(readFile(bPath));
-
-        } catch (IOException e) {
-
-            System.err.println(
-                "Error reading file"
-            );
-
+            A = getLines(Files.readAllBytes(Paths.get(args[1])));
+            B = getLines(Files.readAllBytes(Paths.get(args[2])));
+        } catch (IOException | RuntimeException e) {
+            System.err.println("Error reading file");
             System.exit(2);
             return;
         }
 
-        List<Op> ops = myers(A, B);
+        assignIds(A, B);
+
+        Diff d = new Diff(A.ids, B.ids);
+        d.run();
 
         try {
+            OutputStream out = new BufferedOutputStream(new FileOutputStream(FileDescriptor.out), 1 << 16);
 
-            if (command.equals("lines")) {
-
-                printLines(A, B, ops);
-
+            if (args[0].equals("lines")) {
+                printLines(A, B, d, out);
             } else {
-
-                printHighlight(A, B, ops);
+                printHighlight(A, B, d, out);
             }
-
+            out.flush();
         } catch (IOException e) {
-
-            System.err.println(
-                "Error writing output"
-            );
-
+            System.err.println("Error writing output");
             System.exit(2);
         }
     }
